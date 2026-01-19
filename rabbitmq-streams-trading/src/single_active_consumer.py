@@ -24,6 +24,7 @@ from rstream import (
     AMQPMessage,
     MessageContext,
     SuperStreamConsumer,
+    amqp_decoder,
 )
 
 from .config import StreamConfig
@@ -98,6 +99,7 @@ class SingleActiveConsumer:
             callback=on_message,
             offset_specification=ConsumerOffsetSpecification(OffsetType.FIRST, None),
             subscriber_name=self.consumer_name,  # Enables offset tracking
+            decoder=amqp_decoder,  # Decode AMQP messages
         )
         
         logger.info(f"Consumer '{self.consumer_name}' started and active")

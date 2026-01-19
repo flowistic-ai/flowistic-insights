@@ -20,6 +20,7 @@ from rstream import (
     OffsetType,
     AMQPMessage,
     MessageContext,
+    amqp_decoder,
 )
 
 from .config import StreamConfig
@@ -127,6 +128,7 @@ class MarketDataConsumer:
         
         async def on_message(msg: AMQPMessage, context: MessageContext) -> None:
             try:
+                # msg.body contains our JSON data (already decoded from AMQP)
                 data = MarketData.from_bytes(msg.body)
                 
                 # Apply filter if provided
@@ -145,6 +147,7 @@ class MarketDataConsumer:
             stream=self.config.stream_name,
             callback=on_message,
             offset_specification=offset_spec,
+            decoder=amqp_decoder,  # Decode AMQP messages
         )
         
         logger.info("Consumer started successfully")

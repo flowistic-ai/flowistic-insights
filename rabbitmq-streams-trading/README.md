@@ -18,9 +18,7 @@ This project demonstrates how to use RabbitMQ Streams for high-throughput, low-l
 ```
 rabbitmq-streams-trading/
 ├── docker-compose.yml              # RabbitMQ with Streams enabled
-├── rabbitmq.conf                   # RabbitMQ configuration
-├── enabled_plugins                 # Enable stream plugins
-├── requirements.txt                # Python dependencies
+├── pyproject.toml                  # Project config & dependencies (uv)
 ├── src/
 │   ├── __init__.py
 │   ├── config.py                   # Stream configuration
@@ -29,7 +27,8 @@ rabbitmq-streams-trading/
 │   ├── consumer.py                 # Basic consumer with offset options
 │   ├── single_active_consumer.py   # Ordered processing with failover
 │   ├── batching_consumer.py        # High-throughput micro-batching
-│   └── replay_consumer.py          # Historical data replay
+│   ├── replay_consumer.py          # Historical data replay
+│   └── dashboard.py                # Streamlit visualization dashboard
 └── README.md
 ```
 
@@ -39,20 +38,20 @@ rabbitmq-streams-trading/
 
 ```bash
 cd rabbitmq-streams-trading
-docker-compose up -d
+docker compose up -d
 ```
 
 Wait for RabbitMQ to be healthy:
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 Access the management UI at http://localhost:15672 (guest/guest)
 
-### 2. Install Python Dependencies
+### 2. Install Dependencies with uv
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 3. Run the Producer
@@ -60,34 +59,71 @@ pip install -r requirements.txt
 Generate simulated market data:
 
 ```bash
-python -m src.producer
+uv run python -m src.producer
 ```
 
 ### 4. Run a Consumer
 
 **Basic Consumer** - consume from the beginning:
 ```bash
-python -m src.consumer
+uv run python -m src.consumer
 ```
 
 **Batching Consumer** - high-throughput with aggregation:
 ```bash
-python -m src.batching_consumer
+uv run python -m src.batching_consumer
 ```
 
 **Replay Consumer** - replay historical data:
 ```bash
-python -m src.replay_consumer
+uv run python -m src.replay_consumer
 ```
 
 **Single Active Consumer** - for ordered processing:
 ```bash
 # Terminal 1
-python -m src.single_active_consumer consumer-1
+uv run python -m src.single_active_consumer consumer-1
 
 # Terminal 2 (standby, will activate if consumer-1 fails)
-python -m src.single_active_consumer consumer-2
+uv run python -m src.single_active_consumer consumer-2
 ```
+
+### 5. Run the Streamlit Dashboard
+
+Visualize real-time production and consumption:
+
+```bash
+uv run streamlit run src/dashboard.py
+```
+
+The dashboard shows:
+- Live producer/consumer metrics
+- Multiple consumer status and throughput
+- Symbol statistics with VWAP
+- Real-time price charts
+
+## Multiple Consumers
+
+RabbitMQ Streams supports multiple concurrent consumers reading from the same stream:
+
+```python
+# Each consumer reads independently - non-destructive reads
+consumer1 = MarketDataConsumer(config)
+consumer2 = MarketDataConsumer(config)
+consumer3 = MarketDataConsumer(config)
+
+# All three can consume from the same stream simultaneously
+# Each tracks its own offset independently
+await consumer1.consume_from_first(handler1)  # Reads all from beginning
+await consumer2.consume_from_last(handler2)   # Reads only latest
+await consumer3.consume_from_offset(5000, handler3)  # Reads from offset 5000
+```
+
+Key benefits:
+- **Non-destructive reads**: Unlike queues, messages aren't removed after consumption
+- **Independent offsets**: Each consumer tracks its own position
+- **Parallel processing**: Multiple consumers can process concurrently
+- **Replay capability**: New consumers can read historical data
 
 ## Consumer Patterns
 
@@ -226,18 +262,6 @@ config = StreamConfig(
 )
 ```
 
-### RabbitMQ Stream Settings
-
-In `rabbitmq.conf`:
-```
-# Stream port
-listeners.stream.default = 5552
-
-# Credits for flow control
-stream.initial_credits = 50000
-stream.credits_required_for_unblocking = 25000
-```
-
 ## Market Data Model
 
 ```python
@@ -290,14 +314,21 @@ The Streams tab shows:
 ## Cleanup
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
 ## Dependencies
 
+Managed via [uv](https://docs.astral.sh/uv/):
+
 - **rstream**: Official RabbitMQ Stream Python client
 - **pydantic**: Data validation and serialization
 - **orjson**: Fast JSON serialization
+
+Install uv if you haven't already:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 ## Next Steps
 

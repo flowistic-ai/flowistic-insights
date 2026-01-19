@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -12,10 +10,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbitmq_stream advertised_host localhost"
+    command: >
+      bash -c "rabbitmq-plugins enable --offline rabbitmq_stream rabbitmq_stream_management rabbitmq_management && rabbitmq-server"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-      - ./enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
       test: rabbitmq-diagnostics -q ping
       interval: 10s

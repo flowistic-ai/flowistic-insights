@@ -21,6 +21,7 @@ from rstream import (
     OffsetType,
     AMQPMessage,
     MessageContext,
+    amqp_decoder,
 )
 
 from .config import StreamConfig
@@ -92,6 +93,7 @@ class BatchingConsumer:
             stream=self.config.stream_name,
             callback=on_message,
             offset_specification=ConsumerOffsetSpecification(OffsetType.FIRST, None),
+            decoder=amqp_decoder,  # Decode AMQP messages
         )
         
         logger.info(
