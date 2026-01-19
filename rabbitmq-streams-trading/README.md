@@ -1,6 +1,6 @@
-# RabbitMQ Streams for Market Data
+# RabbitMQ Streams for Market Data (Python)
 
-This project demonstrates how to use RabbitMQ Streams for high-throughput, low-latency market data consumption. RabbitMQ Streams provide a persistent, append-only log that's perfect for financial market data scenarios.
+This project demonstrates how to use RabbitMQ Streams for high-throughput, low-latency market data consumption using Python and the `rstream` library.
 
 ## Why RabbitMQ Streams for Market Data?
 
@@ -18,23 +18,19 @@ This project demonstrates how to use RabbitMQ Streams for high-throughput, low-l
 ```
 rabbitmq-streams-trading/
 ├── docker-compose.yml              # RabbitMQ with Streams enabled
-├── pom.xml                         # Maven dependencies
-├── src/main/java/com/flowistic/trading/
-│   ├── config/
-│   │   └── StreamConfig.java       # Configuration for streams
-│   ├── model/
-│   │   └── MarketData.java         # Market data tick model
-│   ├── serialization/
-│   │   └── MarketDataCodec.java    # JSON serialization
-│   ├── producer/
-│   │   └── MarketDataProducer.java # Simulated market data publisher
-│   └── consumer/
-│       ├── MarketDataConsumer.java      # Basic consumer with offset options
-│       ├── SingleActiveConsumer.java    # Ordered processing with failover
-│       ├── BatchingConsumer.java        # High-throughput micro-batching
-│       └── ReplayConsumer.java          # Historical data replay
-└── src/main/resources/
-    └── logback.xml                 # Logging configuration
+├── rabbitmq.conf                   # RabbitMQ configuration
+├── enabled_plugins                 # Enable stream plugins
+├── requirements.txt                # Python dependencies
+├── src/
+│   ├── __init__.py
+│   ├── config.py                   # Stream configuration
+│   ├── models.py                   # MarketData model with Pydantic
+│   ├── producer.py                 # Simulated market data publisher
+│   ├── consumer.py                 # Basic consumer with offset options
+│   ├── single_active_consumer.py   # Ordered processing with failover
+│   ├── batching_consumer.py        # High-throughput micro-batching
+│   └── replay_consumer.py          # Historical data replay
+└── README.md
 ```
 
 ## Quick Start
@@ -53,10 +49,10 @@ docker-compose ps
 
 Access the management UI at http://localhost:15672 (guest/guest)
 
-### 2. Build the Project
+### 2. Install Python Dependencies
 
 ```bash
-mvn clean package
+pip install -r requirements.txt
 ```
 
 ### 3. Run the Producer
@@ -64,33 +60,33 @@ mvn clean package
 Generate simulated market data:
 
 ```bash
-mvn exec:java -Dexec.mainClass="com.flowistic.trading.producer.MarketDataProducer"
+python -m src.producer
 ```
 
 ### 4. Run a Consumer
 
 **Basic Consumer** - consume from the beginning:
 ```bash
-mvn exec:java -Dexec.mainClass="com.flowistic.trading.consumer.MarketDataConsumer"
+python -m src.consumer
 ```
 
 **Batching Consumer** - high-throughput with aggregation:
 ```bash
-mvn exec:java -Dexec.mainClass="com.flowistic.trading.consumer.BatchingConsumer"
+python -m src.batching_consumer
 ```
 
 **Replay Consumer** - replay historical data:
 ```bash
-mvn exec:java -Dexec.mainClass="com.flowistic.trading.consumer.ReplayConsumer"
+python -m src.replay_consumer
 ```
 
 **Single Active Consumer** - for ordered processing:
 ```bash
 # Terminal 1
-mvn exec:java -Dexec.mainClass="com.flowistic.trading.consumer.SingleActiveConsumer" -Dexec.args="consumer-1"
+python -m src.single_active_consumer consumer-1
 
 # Terminal 2 (standby, will activate if consumer-1 fails)
-mvn exec:java -Dexec.mainClass="com.flowistic.trading.consumer.SingleActiveConsumer" -Dexec.args="consumer-2"
+python -m src.single_active_consumer consumer-2
 ```
 
 ## Consumer Patterns
@@ -99,109 +95,135 @@ mvn exec:java -Dexec.mainClass="com.flowistic.trading.consumer.SingleActiveConsu
 
 The `MarketDataConsumer` demonstrates various offset specifications:
 
-```java
-// Start from the beginning (replay all)
-consumer.consumeFromFirst(handler);
+```python
+from src.consumer import MarketDataConsumer
+from src.config import StreamConfig
 
-// Start from the last message
-consumer.consumeFromLast(handler);
+config = StreamConfig.defaults()
+consumer = MarketDataConsumer(config)
 
-// Only new messages
-consumer.consumeFromNext(handler);
+await consumer.start()
 
-// Resume from a specific offset
-consumer.consumeFromOffset(12345L, handler);
+# Start from the beginning (replay all)
+await consumer.consume_from_first(handler)
 
-// Start from a specific time
-consumer.consumeFromTimestamp(Instant.parse("2024-01-15T09:30:00Z"), handler);
+# Start from the last message
+await consumer.consume_from_last(handler)
 
-// Filter by symbols
-consumer.consumeSymbols(OffsetSpecification.first(), handler, "AAPL", "GOOGL");
+# Only new messages
+await consumer.consume_from_next(handler)
+
+# Resume from a specific offset
+await consumer.consume_from_offset(12345, handler)
+
+# Start from a specific time
+from datetime import datetime
+await consumer.consume_from_timestamp(
+    datetime(2024, 1, 15, 9, 30), 
+    handler
+)
+
+# Filter by symbols
+await consumer.consume_symbols(
+    offset_spec, 
+    handler, 
+    {"AAPL", "GOOGL"}
+)
 ```
 
 ### 2. Single Active Consumer
 
 Ensures ordered processing with automatic failover:
 
-```java
-SingleActiveConsumer consumer = new SingleActiveConsumer(config, "processor-1", "trading-group");
+```python
+from src.single_active_consumer import SingleActiveConsumer
 
-consumer.start((data, offset) -> {
-    // Only the active consumer processes messages
-    processMarketData(data);
-});
+consumer = SingleActiveConsumer(config, "processor-1")
 
-// Check if this instance is active
-if (consumer.isActive()) {
-    logger.info("I am the active consumer");
-}
+async def handle_message(data: MarketData, offset: int):
+    # Only the active consumer processes messages
+    await process_market_data(data)
+
+await consumer.start(handle_message)
+
+# Check if this instance is active
+if consumer.is_active:
+    print("I am the active consumer")
 ```
 
 ### 3. Batching Consumer
 
 For high-throughput scenarios with aggregation:
 
-```java
-BatchingConsumer consumer = new BatchingConsumer(
-    config,
-    1000,                      // batch size
-    Duration.ofMillis(100)     // flush interval
-);
+```python
+from src.batching_consumer import BatchingConsumer
 
-consumer.start(batch -> {
-    // Process batch of market data
-    Map<String, SymbolStats> stats = BatchingConsumer.aggregateBySymbol(batch);
+consumer = BatchingConsumer(
+    config,
+    batch_size=1000,
+    batch_timeout_ms=100,
+)
+
+async def handle_batch(batch: list[MarketData]):
+    # Process batch of market data
+    stats = BatchingConsumer.aggregate_by_symbol(batch)
     
-    // Calculate VWAP per symbol
-    stats.forEach((symbol, stat) -> {
-        logger.info("{}: VWAP={}, High={}, Low={}", 
-            symbol, stat.getVwap(), stat.getHigh(), stat.getLow());
-    });
-});
+    # Calculate VWAP per symbol
+    for symbol, stat in stats.items():
+        print(f"{symbol}: VWAP={stat.vwap}, High={stat.high}, Low={stat.low}")
+
+await consumer.start(handle_batch)
 ```
 
 ### 4. Replay Consumer
 
 For backtesting and historical analysis:
 
-```java
-ReplayConsumer consumer = new ReplayConsumer(config);
+```python
+from src.replay_consumer import ReplayConsumer
+from datetime import datetime
 
-// Replay all data
-ReplayResult result = consumer.replayAll(Duration.ofMinutes(5));
+consumer = ReplayConsumer(config)
+await consumer.start()
 
-// Replay specific time range
-ReplayResult result = consumer.replayTimeRange(
-    Instant.parse("2024-01-15T09:30:00Z"),
-    Instant.parse("2024-01-15T10:00:00Z"),
-    Duration.ofMinutes(5)
-);
+# Replay all data
+result = await consumer.replay_all(timeout_seconds=60)
 
-// Replay specific symbols
-ReplayResult result = consumer.replaySymbols(
-    Set.of("AAPL", "GOOGL", "MSFT"),
-    Duration.ofMinutes(5)
-);
+# Replay specific time range
+result = await consumer.replay_time_range(
+    from_time=datetime(2024, 1, 15, 9, 30),
+    to_time=datetime(2024, 1, 15, 10, 0),
+    timeout_seconds=60,
+)
 
-// Access results
-List<MarketData> aaplData = result.getDataForSymbol("AAPL");
+# Replay specific symbols
+result = await consumer.replay_symbols(
+    {"AAPL", "GOOGL", "MSFT"},
+    timeout_seconds=60,
+)
+
+# Access results
+aapl_data = result.get_data_for_symbol("AAPL")
+result.print_summary()
 ```
 
 ## Configuration
 
 ### Stream Settings
 
-```java
-StreamConfig config = StreamConfig.builder()
-    .host("localhost")
-    .port(5552)
-    .username("guest")
-    .password("guest")
-    .streamName("market-data")
-    .maxAge(Duration.ofHours(24))           // Retain data for 24 hours
-    .maxLengthBytes(10_000_000_000L)        // Max 10 GB
-    .maxSegmentSizeBytes(500_000_000)       // 500 MB per segment
-    .build();
+```python
+from src.config import StreamConfig
+
+config = StreamConfig(
+    host="localhost",
+    port=5552,
+    username="guest",
+    password="guest",
+    stream_name="market-data",
+    max_age_seconds=86400,           # Retain data for 24 hours
+    max_length_bytes=10_000_000_000, # Max 10 GB
+    max_segment_size_bytes=500_000_000,  # 500 MB per segment
+)
 ```
 
 ### RabbitMQ Stream Settings
@@ -216,21 +238,45 @@ stream.initial_credits = 50000
 stream.credits_required_for_unblocking = 25000
 ```
 
+## Market Data Model
+
+```python
+from src.models import MarketData
+
+tick = MarketData(
+    symbol="AAPL",
+    bid_price=Decimal("185.50"),
+    ask_price=Decimal("185.52"),
+    bid_size=Decimal("500"),
+    ask_size=Decimal("300"),
+    last_price=Decimal("185.51"),
+    last_size=Decimal("100"),
+    volume=Decimal("5000000"),
+    timestamp=datetime.now(timezone.utc),
+    exchange="NASDAQ",
+    sequence_number=12345,
+)
+
+# Computed properties
+print(tick.spread)     # 0.02
+print(tick.mid_price)  # 185.51
+
+# Serialization
+bytes_data = tick.to_bytes()
+restored = MarketData.from_bytes(bytes_data)
+```
+
 ## Performance Tips
 
-1. **Use Sub-Entry Batching**: The producer batches messages into sub-entries for higher throughput
-   ```java
-   .subEntrySize(100)      // 100 messages per sub-entry
-   .batchSize(1000)        // 1000 sub-entries per batch
-   ```
+1. **Use Batching**: The `BatchingConsumer` aggregates messages for better throughput
 
-2. **Tune Flow Control**: Adjust credits based on consumer processing speed
-   
-3. **Use Bounded Buffers**: Apply backpressure when consumers can't keep up
-   
-4. **Parallel Processing**: Use multiple threads to process batches
+2. **Tune Buffer Sizes**: Adjust `batch_size` and `batch_timeout_ms` based on your latency requirements
 
-5. **Client-side Filtering**: Filter symbols client-side or use Super Streams for server-side partitioning
+3. **Parallel Processing**: Use `asyncio.gather()` to process batches concurrently
+
+4. **Client-side Filtering**: Filter symbols client-side or use Super Streams for server-side partitioning
+
+5. **Offset Tracking**: Use `subscriber_name` for automatic offset recovery after restarts
 
 ## Monitoring
 
@@ -246,6 +292,12 @@ The Streams tab shows:
 ```bash
 docker-compose down -v
 ```
+
+## Dependencies
+
+- **rstream**: Official RabbitMQ Stream Python client
+- **pydantic**: Data validation and serialization
+- **orjson**: Fast JSON serialization
 
 ## Next Steps
 
