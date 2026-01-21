@@ -96,6 +96,8 @@ Visualize real-time production and consumption:
 uv run streamlit run src/dashboard.py
 ```
 
+![RabbitMQ Streams Market Data Dashboard](docs/dashboard.png)
+
 The dashboard shows:
 - Live producer/consumer metrics
 - Multiple consumer status and throughput
